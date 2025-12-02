@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-const N8N_CHAT_URL = "http://localhost:5678/webhook/chat/your-webhook-id";
+const N8N_CHAT_URL = "/api/chat";
 
 function createSessionId() {
   try {
@@ -59,22 +61,32 @@ const N8nChat = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          message: userMessage.text,
           sessionId,
+          action: "sendMessage",
+          chatInput: userMessage.text,
         }),
       });
 
       if (!res.ok) {
-        throw new Error(`Request failed with status ${res.status}`);
+        const errorText = await res.text().catch(() => "");
+        throw new Error(
+          `Request failed with status ${res.status}: ${errorText}`
+        );
       }
 
       const data = await res.json();
 
       let replyText = "";
-      if (Array.isArray(data) && data[0] && data[0].json) {
-        replyText = data[0].json.output || JSON.stringify(data[0].json);
+
+      if (data && typeof data === "object" && data.output) {
+        replyText = String(data.output).trim();
+      } else if (Array.isArray(data) && data[0] && data[0].json) {
+        replyText = data[0].json.output || JSON.stringify(data[0].json, null, 2);
+      } else if (data && typeof data === "object" && data.reply) {
+        replyText = String(data.reply).trim();
       } else {
-        replyText = JSON.stringify(data);
+        replyText =
+          typeof data === "string" ? data : JSON.stringify(data, null, 2);
       }
 
       const assistantMessage = {
@@ -84,7 +96,8 @@ const N8nChat = () => {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch {
+    } catch (err) {
+      console.error(err);
       const errorMessage = {
         id: Date.now() + 2,
         role: "assistant",
@@ -106,49 +119,55 @@ const N8nChat = () => {
   return (
     <div
       style={{
+        width: "100vw",
         height: "100vh",
-        maxHeight: "100vh",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        backgroundColor: "#0f172a",
-        padding: "16px",
+        background:
+          "radial-gradient(circle at top, #020617 0, #020617 40%, #020617 100%)",
+        padding: "24px",
         boxSizing: "border-box",
       }}
     >
       <div
         style={{
+          width: "100%",
+          maxWidth: "960px",
+          height: "100%",
+          maxHeight: "720px",
+          margin: "0 auto",
+          borderRadius: "24px",
+          border: "1px solid rgba(148, 163, 184, 0.18)",
+          background:
+            "radial-gradient(circle at top left, rgba(15,23,42,1) 0, #020617 45%, #020617 100%)",
+          boxShadow:
+            "0 18px 45px rgba(0,0,0,0.75), 0 0 0 1px rgba(15,23,42,0.8)",
           display: "flex",
           flexDirection: "column",
-          width: "100%",
-          maxWidth: "900px",
-          height: "100%",
-          maxHeight: "700px",
-          backgroundColor: "#020617",
-          borderRadius: "12px",
-          border: "1px solid #1e293b",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
           overflow: "hidden",
         }}
       >
         {/* Header */}
         <div
           style={{
-            padding: "12px 16px",
-            borderBottom: "1px solid #1f2937",
+            padding: "14px 20px",
+            borderBottom: "1px solid rgba(31,41,55,0.9)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            backdropFilter: "blur(10px)",
             background:
-              "linear-gradient(to right, #0f172a, #020617 40%, #0f172a)",
+              "linear-gradient(90deg, rgba(15,23,42,0.96), rgba(15,23,42,0.92))",
           }}
         >
           <div>
             <div
               style={{
                 color: "#e5e7eb",
-                fontSize: "16px",
+                fontSize: "18px",
                 fontWeight: 600,
+                letterSpacing: "0.02em",
               }}
             >
               Should Cost Chatbot
@@ -157,6 +176,7 @@ const N8nChat = () => {
               style={{
                 color: "#9ca3af",
                 fontSize: "12px",
+                marginTop: "2px",
               }}
             >
               Powered by an n8n workflow
@@ -164,14 +184,23 @@ const N8nChat = () => {
           </div>
           <div
             style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
               fontSize: "11px",
               color: "#9ca3af",
-              borderRadius: "999px",
-              border: "1px solid #334155",
-              padding: "4px 8px",
             }}
           >
-            Session: {sessionId.slice(0, 8)}
+            <span
+              style={{
+                padding: "3px 8px",
+                borderRadius: "999px",
+                border: "1px solid rgba(148,163,184,0.4)",
+                backgroundColor: "rgba(15,23,42,0.9)",
+              }}
+            >
+              Session: {sessionId.slice(0, 8)}
+            </span>
           </div>
         </div>
 
@@ -180,58 +209,168 @@ const N8nChat = () => {
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "16px",
+            padding: "18px 20px 16px",
             background:
-              "radial-gradient(circle at top left, rgba(56,189,248,0.08), transparent 60%), radial-gradient(circle at bottom right, rgba(129,140,248,0.08), transparent 60%)",
+              "radial-gradient(circle at top left, rgba(56,189,248,0.10), transparent 55%), radial-gradient(circle at bottom right, rgba(129,140,248,0.09), transparent 55%)",
           }}
         >
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              style={{
-                display: "flex",
-                justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-                marginBottom: "8px",
-              }}
-            >
+          {messages.map((m) => {
+            const isUser = m.role === "user";
+            return (
               <div
+                key={m.id}
                 style={{
-                  maxWidth: "75%",
-                  padding: "8px 12px",
-                  borderRadius: "12px",
-                  fontSize: "14px",
-                  lineHeight: 1.4,
-                  whiteSpace: "pre-wrap",
-                  backgroundColor:
-                    m.role === "user" ? "#1d4ed8" : "rgba(15,23,42,0.85)",
-                  color: "#e5e7eb",
-                  border:
-                    m.role === "user"
-                      ? "1px solid #2563eb"
-                      : "1px solid #1f2937",
+                  display: "flex",
+                  justifyContent: isUser ? "flex-end" : "flex-start",
+                  marginBottom: "10px",
                 }}
               >
-                {m.text}
+                <div
+                  style={{
+                    maxWidth: "70%",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: isUser ? "flex-end" : "flex-start",
+                    gap: "4px",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                      color: isUser ? "#93c5fd" : "#9ca3af",
+                    }}
+                  >
+                    {isUser ? "You" : "Assistant"}
+                  </span>
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: isUser
+                        ? "18px 18px 4px 18px"
+                        : "18px 18px 18px 4px",
+                      fontSize: "14px",
+                      lineHeight: 1.5,
+                      backgroundColor: isUser
+                        ? "rgba(37,99,235,0.95)"
+                        : "rgba(15,23,42,0.96)",
+                      color: "#e5e7eb",
+                      border: isUser
+                        ? "1px solid rgba(59,130,246,0.9)"
+                        : "1px solid rgba(31,41,55,0.95)",
+                      boxShadow: isUser
+                        ? "0 8px 18px rgba(37,99,235,0.35)"
+                        : "0 10px 22px rgba(15,23,42,0.8)",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {isUser ? (
+                      m.text
+                    ) : (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({ node, ...props }) => (
+                            <p
+                              style={{
+                                margin: "0 0 6px",
+                              }}
+                              {...props}
+                            />
+                          ),
+                          ul: ({ node, ...props }) => (
+                            <ul
+                              style={{
+                                paddingLeft: "18px",
+                                margin: "4px 0 6px",
+                              }}
+                              {...props}
+                            />
+                          ),
+                          li: ({ node, ...props }) => (
+                            <li
+                              style={{
+                                marginBottom: "2px",
+                              }}
+                              {...props}
+                            />
+                          ),
+                          table: ({ node, ...props }) => (
+                            <div
+                              style={{
+                                overflowX: "auto",
+                                marginTop: "6px",
+                              }}
+                            >
+                              <table
+                                style={{
+                                  width: "100%",
+                                  borderCollapse: "collapse",
+                                  fontSize: "12px",
+                                }}
+                                {...props}
+                              />
+                            </div>
+                          ),
+                          th: ({ node, ...props }) => (
+                            <th
+                              style={{
+                                border: "1px solid #1f2937",
+                                padding: "4px 6px",
+                                textAlign: "left",
+                                backgroundColor: "rgba(15,23,42,0.9)",
+                                fontWeight: 600,
+                              }}
+                              {...props}
+                            />
+                          ),
+                          td: ({ node, ...props }) => (
+                            <td
+                              style={{
+                                border: "1px solid #1f2937",
+                                padding: "4px 6px",
+                                verticalAlign: "top",
+                              }}
+                              {...props}
+                            />
+                          ),
+                          strong: ({ node, ...props }) => (
+                            <strong
+                              style={{
+                                color: "#e5e7eb",
+                              }}
+                              {...props}
+                            />
+                          ),
+                        }}
+                      >
+                        {m.text}
+                      </ReactMarkdown>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {isLoading && (
             <div
               style={{
                 display: "flex",
                 justifyContent: "flex-start",
-                marginBottom: "8px",
+                marginTop: "4px",
               }}
             >
               <div
                 style={{
                   padding: "8px 12px",
-                  borderRadius: "12px",
+                  borderRadius: "14px",
                   fontSize: "13px",
-                  backgroundColor: "rgba(15,23,42,0.85)",
+                  backgroundColor: "rgba(15,23,42,0.9)",
                   color: "#9ca3af",
-                  border: "1px solid #1f2937",
+                  border: "1px solid rgba(31,41,55,0.9)",
+                  fontStyle: "italic",
                 }}
               >
                 Thinking...
@@ -245,9 +384,9 @@ const N8nChat = () => {
         {/* Input */}
         <div
           style={{
-            borderTop: "1px solid #1f2937",
-            padding: "10px 12px",
-            backgroundColor: "#020617",
+            borderTop: "1px solid rgba(31,41,55,0.9)",
+            padding: "10px 14px 12px",
+            backgroundColor: "rgba(2,6,23,0.98)",
           }}
         >
           <form
@@ -257,7 +396,7 @@ const N8nChat = () => {
             }}
             style={{
               display: "flex",
-              gap: "8px",
+              gap: "10px",
               alignItems: "flex-end",
             }}
           >
@@ -268,33 +407,37 @@ const N8nChat = () => {
               placeholder="Describe your new chemical or ask a question..."
               style={{
                 flex: 1,
-                minHeight: "38px",
+                minHeight: "44px",
                 maxHeight: "120px",
-                padding: "8px 10px",
+                padding: "10px 12px",
                 resize: "vertical",
-                borderRadius: "8px",
-                border: "1px solid #374151",
+                borderRadius: "12px",
+                border: "1px solid rgba(55,65,81,0.95)",
                 backgroundColor: "#020617",
                 color: "#e5e7eb",
                 fontSize: "14px",
                 outline: "none",
+                boxShadow: "0 0 0 1px rgba(15,23,42,0.9)",
               }}
             />
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
               style={{
-                minWidth: "80px",
-                padding: "8px 14px",
+                minWidth: "92px",
+                padding: "10px 18px",
                 borderRadius: "999px",
                 border: "none",
                 fontSize: "14px",
                 fontWeight: 500,
-                cursor: isLoading || !input.trim() ? "not-allowed" : "pointer",
-                opacity: isLoading || !input.trim() ? 0.5 : 1,
+                cursor:
+                  isLoading || !input.trim() ? "not-allowed" : "pointer",
+                opacity: isLoading || !input.trim() ? 0.55 : 1,
                 background:
-                  "linear-gradient(to right, #2563eb, #4f46e5, #06b6d4)",
+                  "linear-gradient(135deg, #2563eb, #4f46e5, #0ea5e9)",
                 color: "#f9fafb",
+                boxShadow:
+                  "0 10px 24px rgba(37,99,235,0.45), 0 0 0 1px rgba(15,23,42,0.9)",
               }}
             >
               {isLoading ? "Sending..." : "Send"}
